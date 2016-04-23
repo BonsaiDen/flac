@@ -162,6 +162,7 @@ impl<P> Stream<P> where P: StreamProducer {
   }
 }
 
+
 /// An iterator over a reference of the decoded FLAC stream.
 pub struct Iter<'a, P, S>
  where P: 'a + StreamProducer,
@@ -221,14 +222,85 @@ impl<'a, P, S> Iterator for Iter<'a, P, S>
   }
 }
 
-//impl<'a, P, S> IntoIterator for &'a mut Stream<P>
-// where P: StreamProducer,
-//       S: Sample {
-//  type Item     = S::Normal;
-//  type IntoIter = Iter<'a, P, S>;
-//
-//  #[inline]
-//  fn into_iter(self) -> Self::IntoIter {
-//    self.iter()
-//  }
-//}
+
+/// An iterator over a reference of the decoded FLAC stream.
+pub struct StreamIter<P, S>
+ where P: StreamProducer,
+       S: Sample {
+  stream: Stream<P>,
+  channel: usize,
+  block_size: usize,
+  sample_index: usize,
+  samples_left: u64,
+  buffer: Vec<S>,
+}
+
+impl<P, S> StreamIter<P, S>
+ where P: StreamProducer,
+       S: Sample {
+
+    pub fn new(stream: Stream<P>) -> StreamIter<P, S> {
+        let samples_left = stream.info.total_samples;
+        let channels     = stream.info.channels as usize;
+        let block_size   = stream.info.max_block_size as usize;
+        let buffer_size  = block_size * channels;
+
+        StreamIter {
+          stream: stream,
+          channel: 0,
+          block_size: 0,
+          sample_index: 0,
+          samples_left: samples_left,
+          buffer: vec![S::from_i8(0); buffer_size]
+        }
+    }
+
+}
+
+impl<P, S> Iterator for StreamIter< P, S>
+ where P: StreamProducer,
+       S: Sample {
+  type Item = S::Normal;
+
+  fn next(&mut self) -> Option<Self::Item> {
+    if self.sample_index == self.block_size {
+      let buffer = &mut self.buffer;
+
+      if let Some(block_size) = self.stream.next_frame(buffer) {
+        self.sample_index = 0;
+        self.block_size   = block_size;
+      } else {
+        return None;
+      }
+    }
+
+    let channels = self.stream.info.channels as usize;
+    let index    = self.sample_index + (self.channel * self.block_size);
+    let sample   = self.buffer[index];
+
+    self.channel += 1;
+
+    // Reset current channel
+    if self.channel == channels {
+      self.channel       = 0;
+      self.sample_index += 1;
+      self.samples_left -= 1;
+    }
+
+    S::to_normal(sample)
+  }
+
+  fn size_hint(&self) -> (usize, Option<usize>) {
+    let samples_left = self.samples_left as usize;
+    let max_value    = usize::max_value() as u64;
+
+    // There is a chance that samples_left will be larger than a usize since
+    // it is a u64. Make the upper bound None when it is.
+    if self.samples_left > max_value {
+      (samples_left, None)
+    } else {
+      (samples_left, Some(samples_left))
+    }
+  }
+}
+

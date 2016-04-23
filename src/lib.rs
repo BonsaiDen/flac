@@ -35,7 +35,7 @@ pub mod metadata;
 pub mod stream;
 
 pub use metadata::Metadata;
-pub use stream::{Stream, StreamBuffer, StreamReader};
+pub use stream::{Stream, StreamBuffer, StreamReader, StreamIter};
 pub use utility::{
   Sample, SampleSize,
   StreamProducer, ReadStream, ByteStream,
